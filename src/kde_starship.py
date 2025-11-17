@@ -197,20 +197,42 @@ def gen_starship_config(palette, template_file):
     with open(template_path, 'r') as f:
         template = f.read()
 
-    # replace colors in the template only in the [palette.colors] section
-    start_marker = "[palette.colors]"
-    end_marker = "["
-    start_index = template.find(start_marker)
-    if start_index == -1:
+
+    # replace colors in the template only in the [palette.colors] or [palettes.colors] section
+    # Support both `{key}` and `{{key}}` placeholder styles.
+    # Find the section header robustly (match as a line) so slight differences (plural) are handled.
+    m = re.search(r"^\[(?:palette|palettes)\.colors\]\s*$", template, flags=re.M)
+    if not m:
         return template
 
-    end_index = template.find(end_marker, start_index + len(start_marker))
-    if end_index == -1:
+    # start index is the beginning of the matched header line
+    start_index = m.start()
+    # search for the next section header (a line that starts with '[') after the header
+    rest = template[m.end():]
+    m2 = re.search(r"^\[", rest, flags=re.M)
+    if m2:
+        end_index = m.end() + m2.start()
+    else:
         end_index = len(template)
 
     palette_section = template[start_index:end_index]
+
+    # Update existing key assignments inside the palette section (e.g. "accent = '#112233'")
+    # If a key from `palette` exists, replace its RHS with the generated color.
+    # If it does not exist, append a new line with the assignment at the end of the section.
     for key, color in palette.items():
-        palette_section = palette_section.replace(f'{{{{{key}}}}}', color)
+        if not isinstance(color, str):
+            continue
+        # pattern matches a line that starts with the key followed by '=' and anything
+        pat = re.compile(rf"^\s*{re.escape(key)}\s*=.*$", flags=re.M)
+        replacement = f"{key} = '{color}'"
+        if pat.search(palette_section):
+            palette_section = pat.sub(replacement, palette_section)
+        else:
+            # ensure palette_section ends with a newline before appending
+            if not palette_section.endswith('\n'):
+                palette_section += '\n'
+            palette_section += replacement + '\n'
 
     template = template[:start_index] + palette_section + template[end_index:]
 
@@ -247,6 +269,8 @@ def main():
         return
 
     palette = build_starship_palette(scheme_path, accent_hex)
+    print("Generated color palette:", palette)
+    
     try:
         starship_config = gen_starship_config(palette, template_path)
     except FileNotFoundError as e:
