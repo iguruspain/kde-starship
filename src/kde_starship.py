@@ -209,8 +209,8 @@ def gen_starship_config(palette, template_file):
 
 def main():
     parser = argparse.ArgumentParser(description="Generate Starship configuration based on the active KDE color scheme.")
-    parser.add_argument('-o', '--output', type=str, default="~/.config/starship.toml", help="output file for the generated Starship configuration.")
-    parser.add_argument('-t', '--template', type=str, default="~/.config/kde_starship/starship.toml", help="template file for the Starship configuration.")
+    parser.add_argument('-o', '--output', type=str, default="$HOME/.config/starship.toml", help="output file for the generated Starship configuration.")
+    parser.add_argument('-t', '--template', type=str, default="$HOME/.config/kde_starship/starship.toml", help="template file for the Starship configuration.")
     args = parser.parse_args()
 
     scheme_name = get_active_color_scheme()
