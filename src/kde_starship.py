@@ -1,0 +1,245 @@
+#!/usr/bin/env python3
+import argparse
+import configparser
+import json
+import shutil
+import os
+import re
+import subprocess
+from pathlib import Path
+
+def get_active_color_scheme():
+    try:
+        result = subprocess.run(
+            ["kreadconfig6", "--file", "kdeglobals", "--group", "General", "--key", "ColorScheme"],
+            capture_output=True, text=True, check=True
+        )
+        return result.stdout.strip() or None
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        kdeglobals = Path("~/.config/kdeglobals").expanduser()
+        if kdeglobals.exists():
+            config = configparser.ConfigParser()
+            config.read(kdeglobals)
+            return config.get("General", "ColorScheme", fallback=None)
+    return None
+
+def get_color_scheme_path(scheme_name):
+    kde_colors_dir = Path("~/.local/share/color-schemes").expanduser()
+    scheme_file = kde_colors_dir / f"{scheme_name}.colors"
+    if scheme_file.exists():
+        return scheme_file
+    return None
+
+def get_color(scheme_path, color_section, color_key):
+    config = configparser.ConfigParser()
+    config.read(scheme_path)
+    try:
+        color_value = config.get(color_section, color_key)
+        match = re.match(r"#?([0-9A-Fa-f]{6})", color_value)
+        if match:
+            # Return in format #rrggbb (lowercase)
+            return f"#{match.group(1).lower()}"
+    except (configparser.NoSectionError, configparser.NoOptionError):
+        pass
+    return None
+
+
+def normalize_color(c):
+    """Normalize a color value to '#rrggbb' format or return None."""
+    if not c:
+        return None
+    if not isinstance(c, str):
+        return None
+    s = c.strip()
+    m = re.match(r"#?([0-9A-Fa-f]{6})", s)
+    if not m:
+        return None
+    return f"#{m.group(1).lower()}"
+
+def hex_to_rgb(hex_color):
+    # Accept format with or without '#'
+    if isinstance(hex_color, str) and hex_color.startswith('#'):
+        hex_color = hex_color[1:]
+
+    if not isinstance(hex_color, str) or len(hex_color) != 6:
+        raise ValueError(f"Invalid hex color value: {hex_color}")
+
+    r = int(hex_color[0:2], 16)
+    g = int(hex_color[2:4], 16)
+    b = int(hex_color[4:6], 16)
+    return r, g, b
+
+def rgb_to_hex(r, g, b):
+    return f'#{r:02x}{g:02x}{b:02x}'
+
+def get_accent_color():
+    try:
+        result = subprocess.run(
+            ["kreadconfig6", "--file", "kdeglobals", "--group", "General", "--key", "AccentColor"],
+            capture_output=True, text=True, check=True
+        )
+        accent_temp = result.stdout.strip()
+        accent_hex = None
+        accent_rgb = None
+        
+            # RGB format (r, g, b)
+        if re.fullmatch(r'\d{1,3},\s*\d{1,3},\s*\d{1,3}', accent_temp):
+            r, g, b = [int(c.strip()) for c in accent_temp.split(',')]
+            accent_hex = rgb_to_hex(r, g, b)
+            accent_rgb = (r, g, b)
+            return accent_hex, accent_rgb
+            
+            # Hexadecimal format
+        if re.fullmatch(r'#[0-9A-Fa-f]{6}', accent_temp):
+            accent_hex = accent_temp
+            accent_rgb = hex_to_rgb(accent_hex[1:])
+            return accent_hex, accent_rgb
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        pass
+
+    return None, None
+
+def better_contrast_selection(base_color, colors=None):
+    if colors is None:
+        colors = []
+
+    def srgb_channel_to_linear(c8):
+        c = c8 / 255.0
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    def luminance_from_rgb(rgb):
+        r, g, b = rgb
+        return 0.2126 * srgb_channel_to_linear(r) + \
+               0.7152 * srgb_channel_to_linear(g) + \
+               0.0722 * srgb_channel_to_linear(b)
+
+    def contrast_ratio(lum1, lum2):
+        L1, L2 = max(lum1, lum2), min(lum1, lum2)
+        return (L1 + 0.05) / (L2 + 0.05)
+
+    # normalize base_color and compute luminance
+    base_rgb = hex_to_rgb(base_color)
+    base_lum = luminance_from_rgb(base_rgb)
+
+    best_color = None
+    best_contrast = -1.0
+
+    for c in colors:
+        if not c:
+            continue
+        rgb = hex_to_rgb(c)
+        lum = luminance_from_rgb(rgb)
+        cr = contrast_ratio(base_lum, lum)
+        if cr > best_contrast:
+            best_contrast = cr
+            best_color = c
+
+    # If there are no valid candidates, choose between black/white
+    if best_color is None:
+        black_lum = luminance_from_rgb(hex_to_rgb('#000000'))
+        white_lum = luminance_from_rgb(hex_to_rgb('#ffffff'))
+        bcr = contrast_ratio(base_lum, black_lum)
+        wcr = contrast_ratio(base_lum, white_lum)
+        return '#000000' if bcr >= wcr else '#ffffff'
+
+    return best_color
+
+def build_starship_palette(scheme_path, accent_hex):
+    # Load pywal colors
+    json_path = Path('~/.cache/wal/colors.json').expanduser()
+    special = {}
+    colors = {}
+    if json_path.exists():
+        with open(json_path, 'r') as jf:
+            data = json.load(jf)
+            special = data.get('special', {})
+            colors = data.get('colors', {})
+
+    # Normalize `accent_hex` to a '#rrggbb' string
+    accent_hex = normalize_color(accent_hex) or '#000000'
+
+    text = normalize_color(get_color(scheme_path, "Colors:Window", "ForegroundNormal"))
+    text2 = normalize_color(get_color(scheme_path, "Colors:Selection", "ForegroundActive"))
+    term_text = normalize_color(special.get('foreground', None))
+
+    dir_bg = normalize_color(get_color(scheme_path, "Colors:View", "DecorationHover"))
+    other_bg = normalize_color(get_color(scheme_path, "Colors:View", "DecorationFocus"))
+    git_bg = normalize_color(get_color(scheme_path, "Colors:Window", "BackgroundAlternate"))
+    dir_fg = normalize_color(get_color(scheme_path, "Colors:Selection", "DecorationFocus"))
+    other_fg = normalize_color(get_color(scheme_path, "Colors:View", "DecorationHover"))
+    git_fg = normalize_color(get_color(scheme_path, "Colors:Window", "ForegroundInactive"))
+
+    return {
+        'accent': accent_hex,
+        'accent_text': better_contrast_selection(accent_hex, [text, text2, term_text]),
+        'dir_bg': dir_bg,
+        'dir_fg': dir_fg,
+        'dir_text': better_contrast_selection(dir_bg, [dir_fg, text, text2, term_text]),
+        'git_bg': git_bg,
+        'git_fg': git_fg,
+        'other_bg': other_bg,
+        'other_fg': other_fg,
+        'other_text': better_contrast_selection(other_bg, [other_fg, text, text2, term_text]),
+        'text': text,
+        'text2': text2
+    }
+
+def gen_starship_config(palette, template_file):
+    with open(template_file, 'r') as f:
+        template = f.read()
+
+    # replace colors in the template only in the [palette.colors] section
+    start_marker = "[palette.colors]"
+    end_marker = "["
+    start_index = template.find(start_marker)
+    if start_index == -1:
+        return template
+
+    end_index = template.find(end_marker, start_index + len(start_marker))
+    if end_index == -1:
+        end_index = len(template)
+
+    palette_section = template[start_index:end_index]
+    for key, color in palette.items():
+        palette_section = palette_section.replace(f'{{{{{key}}}}}', color)
+
+    template = template[:start_index] + palette_section + template[end_index:]
+
+    return template
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate Starship configuration based on the active KDE color scheme.")
+    parser.add_argument('-o', '--output', type=str, default="~/.config/starship.toml", help="output file for the generated Starship configuration.")
+    parser.add_argument('-t', '--template', type=str, default="~/.config/kde_starship/starship.toml", help="template file for the Starship configuration.")
+    args = parser.parse_args()
+
+    scheme_name = get_active_color_scheme()
+    if not scheme_name:
+        print("Could not determine the active KDE color scheme.")
+        return
+
+    scheme_path = get_color_scheme_path(scheme_name)
+    if not scheme_path:
+        print(f"Could not find color scheme file: {scheme_name}")
+        return
+
+    accent_hex, _ = get_accent_color()
+    if not accent_hex:
+        print("Could not determine accent color.")
+        return
+
+    palette = build_starship_palette(scheme_path, accent_hex)
+    starship_config = gen_starship_config(palette, args.template)
+
+    # backup existing file with shutil
+    if os.path.exists(args.output):
+        backup_path = args.output + ".bak"
+        shutil.copy2(args.output, backup_path)
+
+    with open(args.output, 'w') as f:
+        f.write(starship_config)
+
+    print(f"Starship configuration generated at: {args.output}")
+
+if __name__ == "__main__":
+    main()
