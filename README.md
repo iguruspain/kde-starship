@@ -28,11 +28,7 @@ What gets installed
 - My custom default template `template/starship.toml` is copied to `$HOME/.config/kde_starship/starship.toml`.
 
 Usage
-- Generate the Starship configuration (default output `$HOME/.config/starship.toml`):
-```sh
-kde-starship -t /path/to/template/starship.toml
-```
-or specific output
+- Generate the Starship configuration (defaults: output `~/.config/starship.toml`; template `~/.config/kde_starship/starship.toml`):
 ```sh
 kde-starship -o ~/.config/starship.toml -t /path/to/template/starship.toml
 ```

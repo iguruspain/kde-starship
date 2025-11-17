@@ -185,7 +185,16 @@ def build_starship_palette(scheme_path, accent_hex):
     }
 
 def gen_starship_config(palette, template_file):
-    with open(template_file, 'r') as f:
+    # Accept either a Path or a string; expand variables/users if needed
+    if isinstance(template_file, (str,)):
+        template_path = Path(os.path.expanduser(os.path.expandvars(template_file)))
+    else:
+        template_path = Path(template_file)
+
+    if not template_path.exists():
+        raise FileNotFoundError(f"Template file not found: {template_path}")
+
+    with open(template_path, 'r') as f:
         template = f.read()
 
     # replace colors in the template only in the [palette.colors] section
@@ -209,8 +218,8 @@ def gen_starship_config(palette, template_file):
 
 def main():
     parser = argparse.ArgumentParser(description="Generate Starship configuration based on the active KDE color scheme.")
-    parser.add_argument('-o', '--output', type=str, default="$HOME/.config/starship.toml", help="output file for the generated Starship configuration.")
-    parser.add_argument('-t', '--template', type=str, default="$HOME/.config/kde_starship/starship.toml", help="template file for the Starship configuration.")
+    parser.add_argument('-o', '--output', type=str, required=True, help="output file for the generated Starship configuration.")
+    parser.add_argument('-t', '--template', type=str, required=True, help="template file for the Starship configuration.")
     args = parser.parse_args()
 
     scheme_name = get_active_color_scheme()
@@ -228,18 +237,35 @@ def main():
         print("Could not determine accent color.")
         return
 
+    # Expand user and env vars for template and output paths
+    template_path = os.path.expanduser(os.path.expandvars(args.template))
+    output_path = os.path.expanduser(os.path.expandvars(args.output))
+
+    # Ensure template exists before proceeding
+    if not Path(template_path).exists():
+        print(f"Could not find template file: {template_path}")
+        return
+
     palette = build_starship_palette(scheme_path, accent_hex)
-    starship_config = gen_starship_config(palette, args.template)
+    try:
+        starship_config = gen_starship_config(palette, template_path)
+    except FileNotFoundError as e:
+        print(str(e))
+        return
+
+    # Ensure output directory exists
+    out_dir = Path(output_path).expanduser().parent
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     # backup existing file with shutil
-    if os.path.exists(args.output):
-        backup_path = args.output + ".bak"
-        shutil.copy2(args.output, backup_path)
+    if os.path.exists(output_path):
+        backup_path = output_path + ".bak"
+        shutil.copy2(output_path, backup_path)
 
-    with open(args.output, 'w') as f:
+    with open(output_path, 'w') as f:
         f.write(starship_config)
 
-    print(f"Starship configuration generated at: {args.output}")
+    print(f"Starship configuration generated at: {output_path}")
 
 if __name__ == "__main__":
     main()
