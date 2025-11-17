@@ -30,7 +30,7 @@ What gets installed
 Usage
 - Generate the Starship configuration (defaults: output `~/.config/starship.toml`; template `~/.config/kde_starship/starship.toml`):
 ```sh
-kde-starship -o ~/.config/starship.toml -t /path/to/template/starship.toml
+kde-starship -o ~/.config/starship.toml -t ~/.config/kde_starship/starship.toml
 ```
 
 - Show help:
