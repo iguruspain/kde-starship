@@ -82,14 +82,14 @@ def get_accent_color():
         accent_hex = None
         accent_rgb = None
         
-            # RGB format (r, g, b)
+        # RGB format (r, g, b)
         if re.fullmatch(r'\d{1,3},\s*\d{1,3},\s*\d{1,3}', accent_temp):
             r, g, b = [int(c.strip()) for c in accent_temp.split(',')]
             accent_hex = rgb_to_hex(r, g, b)
             accent_rgb = (r, g, b)
             return accent_hex, accent_rgb
             
-            # Hexadecimal format
+        # Hexadecimal format
         if re.fullmatch(r'#[0-9A-Fa-f]{6}', accent_temp):
             accent_hex = accent_temp
             accent_rgb = hex_to_rgb(accent_hex[1:])
@@ -154,6 +154,9 @@ def build_starship_palette(scheme_path, accent_hex):
             data = json.load(jf)
             special = data.get('special', {})
             colors = data.get('colors', {})
+
+    if accent_hex is None:
+        accent_hex = colors.get('color1', None)
 
     # Normalize `accent_hex` to a '#rrggbb' string
     accent_hex = normalize_color(accent_hex) or '#000000'
@@ -255,9 +258,9 @@ def main():
         return
 
     accent_hex, _ = get_accent_color()
-    if not accent_hex:
-        print("Could not determine accent color.")
-        return
+    # if not accent_hex:
+    #     print("Could not determine accent color.")
+    #     return
 
     # Expand user and env vars for template and output paths
     template_path = os.path.expanduser(os.path.expandvars(args.template))
@@ -269,7 +272,7 @@ def main():
         return
 
     palette = build_starship_palette(scheme_path, accent_hex)
-    print("Generated color palette:", palette)
+    #print("Generated color palette:", palette)
     
     try:
         starship_config = gen_starship_config(palette, template_path)
