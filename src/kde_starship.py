@@ -144,6 +144,46 @@ def better_contrast_selection(base_color, colors=None):
 
     return best_color
 
+def darkest_brightest_color(colors):
+    """Return the darkest and brightest colors from a list of hex colors."""
+    if not colors:
+        return '#000000', '#ffffff'
+    
+    # Filter out None values and normalize colors
+    valid_colors = [normalize_color(c) for c in colors if normalize_color(c)]
+    
+    if not valid_colors:
+        return '#000000', '#ffffff'
+    
+    def srgb_channel_to_linear(c8):
+        c = c8 / 255.0
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    def luminance_from_rgb(rgb):
+        r, g, b = rgb
+        return 0.2126 * srgb_channel_to_linear(r) + \
+               0.7152 * srgb_channel_to_linear(g) + \
+               0.0722 * srgb_channel_to_linear(b)
+    
+    darkest = valid_colors[0]
+    brightest = valid_colors[0]
+    min_lum = luminance_from_rgb(hex_to_rgb(darkest))
+    max_lum = min_lum
+    
+    for color in valid_colors[1:]:
+        rgb = hex_to_rgb(color)
+        lum = luminance_from_rgb(rgb)
+        
+        if lum < min_lum:
+            min_lum = lum
+            darkest = color
+        
+        if lum > max_lum:
+            max_lum = lum
+            brightest = color
+    
+    return darkest, brightest
+
 def build_starship_palette(scheme_path, accent_hex):
     # Load pywal colors
     json_path = Path('~/.cache/wal/colors.json').expanduser()
@@ -154,17 +194,22 @@ def build_starship_palette(scheme_path, accent_hex):
             data = json.load(jf)
             special = data.get('special', {})
             colors = data.get('colors', {})
-
-    if accent_hex is None:
-        accent_hex = colors.get('color1', None)
+        if accent_hex is None:
+            accent_hex = colors.get('color1', '#ff0000')
+        term_text = special.get('foreground', None)
+    else:
+        if accent_hex is None:
+            accent_hex = '#ff0000'
+        term_text = get_color(scheme_path, "Colors:Window", "ForegroundNormal")
 
     # Normalize `accent_hex` to a '#rrggbb' string
-    accent_hex = normalize_color(accent_hex) or '#000000'
-
+    accent_hex = normalize_color(accent_hex)
+    accent_text = better_contrast_selection(accent_hex, [text, text2, term_text])
     text = normalize_color(get_color(scheme_path, "Colors:Window", "ForegroundNormal"))
     text2 = normalize_color(get_color(scheme_path, "Colors:Selection", "ForegroundActive"))
     term_text = normalize_color(special.get('foreground', None))
-
+    dir_text = better_contrast_selection(dir_bg, [dir_fg, text, text2, term_text])
+    other_text = better_contrast_selection(other_bg, [other_fg, text, text2, term_text])
     dir_bg = normalize_color(get_color(scheme_path, "Colors:View", "DecorationHover"))
     other_bg = normalize_color(get_color(scheme_path, "Colors:View", "DecorationFocus"))
     git_bg = normalize_color(get_color(scheme_path, "Colors:Window", "BackgroundAlternate"))
@@ -174,15 +219,15 @@ def build_starship_palette(scheme_path, accent_hex):
 
     return {
         'accent': accent_hex,
-        'accent_text': better_contrast_selection(accent_hex, [text, text2, term_text]),
+        'accent_text': accent_text,
         'dir_bg': dir_bg,
         'dir_fg': dir_fg,
-        'dir_text': better_contrast_selection(dir_bg, [dir_fg, text, text2, term_text]),
+        'dir_text': dir_text,
         'git_bg': git_bg,
         'git_fg': git_fg,
         'other_bg': other_bg,
         'other_fg': other_fg,
-        'other_text': better_contrast_selection(other_bg, [other_fg, text, text2, term_text]),
+        'other_text': other_text,
         'text': text,
         'text2': text2
     }
@@ -241,10 +286,20 @@ def gen_starship_config(palette, template_file):
 
     return template
 
+def refresh_starship():
+    if subprocess.run(['pgrep', 'kitty'], capture_output=True).stdout:
+        subprocess.run(['pkill', 'kitty'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        subprocess.Popen(
+            ['kitty'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+
 def main():
     parser = argparse.ArgumentParser(description="Generate Starship configuration based on the active KDE color scheme.")
     parser.add_argument('-o', '--output', type=str, required=True, help="output file for the generated Starship configuration.")
     parser.add_argument('-t', '--template', type=str, required=True, help="template file for the Starship configuration.")
+    parser.add_argument('-c', '--accent-color', type=str, dest='accent_color', default=None, help="optional accent color in hex format (e.g., #ff0000). If not provided, the system accent color will be used.")
+    parser.add_argument('-r', '--restart', dest='restart_starship', action='store_true', help="restart Starship instance after generation.")
     args = parser.parse_args()
 
     scheme_name = get_active_color_scheme()
@@ -257,10 +312,7 @@ def main():
         print(f"Could not find color scheme file: {scheme_name}")
         return
 
-    accent_hex, _ = get_accent_color()
-    # if not accent_hex:
-    #     print("Could not determine accent color.")
-    #     return
+    accent_hex = args.accent_color if args.accent_color else get_accent_color()[0]
 
     # Expand user and env vars for template and output paths
     template_path = os.path.expanduser(os.path.expandvars(args.template))
@@ -292,7 +344,9 @@ def main():
     with open(output_path, 'w') as f:
         f.write(starship_config)
 
-    print(f"Starship configuration generated at: {output_path}")
+    if args.restart_starship:
+        refresh_starship()
+    #print(f"Starship configuration generated at: {output_path}")
 
 if __name__ == "__main__":
     main()
