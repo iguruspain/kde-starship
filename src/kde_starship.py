@@ -204,18 +204,18 @@ def build_starship_palette(scheme_path, accent_hex):
 
     # Normalize `accent_hex` to a '#rrggbb' string
     accent_hex = normalize_color(accent_hex)
-    accent_text = better_contrast_selection(accent_hex, [text, text2, term_text])
     text = normalize_color(get_color(scheme_path, "Colors:Window", "ForegroundNormal"))
     text2 = normalize_color(get_color(scheme_path, "Colors:Selection", "ForegroundActive"))
     term_text = normalize_color(special.get('foreground', None))
-    dir_text = better_contrast_selection(dir_bg, [dir_fg, text, text2, term_text])
-    other_text = better_contrast_selection(other_bg, [other_fg, text, text2, term_text])
+    accent_text = better_contrast_selection(accent_hex, [text, text2, term_text])
     dir_bg = normalize_color(get_color(scheme_path, "Colors:View", "DecorationHover"))
     other_bg = normalize_color(get_color(scheme_path, "Colors:View", "DecorationFocus"))
     git_bg = normalize_color(get_color(scheme_path, "Colors:Window", "BackgroundAlternate"))
     dir_fg = normalize_color(get_color(scheme_path, "Colors:Selection", "DecorationFocus"))
     other_fg = normalize_color(get_color(scheme_path, "Colors:View", "DecorationHover"))
     git_fg = normalize_color(get_color(scheme_path, "Colors:Window", "ForegroundInactive"))
+    dir_text = better_contrast_selection(dir_bg, [dir_fg, text, text2, term_text])
+    other_text = better_contrast_selection(other_bg, [other_fg, text, text2, term_text])
 
     return {
         'accent': accent_hex,
