@@ -84,7 +84,7 @@ CachyOS = ""
 [username]
 show_always = true
 style_user = "fg:accent_text bg:accent"
-style_root = "fg:color_red bg:accent"
+style_root = "fg:#ff0000 bg:accent"
 format = '[$user](bold $style)'
 
 [directory]
