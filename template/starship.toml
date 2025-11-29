@@ -39,15 +39,17 @@ $character
 palette = 'colors'
 
 [palettes.colors]
-dir_bg='#1d6586'
-git_fg='#8b9297'
-git_bg='#333a3f'
-other_fg='#1d6586'
-other_bg='#61a0c4'
-accent='#569cc1'
-accent_text='#00344a'
-dir_text='#ccdfee'
-other_text='#00344a'
+accent = '#b27100'
+accent_text = '#f9d6bc'
+dir_fg = '#cb8a51'
+dir_bg = '#8e4e00'
+dir_text = '#f9d6bc'
+git_fg = '#a18d7e'
+git_bg = '#44362b'
+git_text = '#a18d7e'
+other_fg = '#8e4e00'
+other_bg = '#cb8a51'
+other_text = '#4c2700'
 color_green = '#00aa7f'
 color_purple = '#6e0c9bff'
 color_red = '#964b70'
@@ -108,11 +110,11 @@ truncation_symbol = " /"
 [git_branch]
 symbol = ""
 style = "bg:git_bg"
-format = '[[ $symbol $branch ](fg:git_fg bg:git_bg)]($style)'
+format = '[[ $symbol $branch ](fg:git_text bg:git_bg)]($style)'
 
 [git_status]
 style = "bg:git_bg"
-format = '[[($all_status$ahead_behind )](fg:git_fg bg:git_bg)]($style)'
+format = '[[($all_status$ahead_behind )](fg:git_text bg:git_bg)]($style)'
 
 [nodejs]
 symbol = ""
