@@ -72,6 +72,107 @@ def hex_to_rgb(hex_color):
 def rgb_to_hex(r, g, b):
     return f'#{r:02x}{g:02x}{b:02x}'
 
+def get_primary_screen_index():
+    """Get the index of the primary screen using kscreen-doctor.
+    
+    Returns the screen index (0-based) of the primary display,
+    or 0 as fallback if detection fails.
+    """
+    try:
+        result = subprocess.run(
+            ["kscreen-doctor", "-o"],
+            capture_output=True, text=True, check=True
+        )
+        
+        # Parse output: each "Output:" starts a new screen
+        # Look for the one with "priority 1"
+        screen_index = -1
+        primary_index = None
+        
+        for line in result.stdout.split('\n'):
+            if line.startswith('Output:'):
+                screen_index += 1
+            elif 'priority 1' in line and screen_index >= 0:
+                primary_index = screen_index
+                break
+        
+        if primary_index is not None:
+            return primary_index
+            
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        pass
+    
+    # Fallback to screen 0
+    return 0
+
+
+def get_current_wallpaper():
+    """Get the current wallpaper path from KDE Plasma config for the primary screen."""
+    config_path = Path("~/.config/plasma-org.kde.plasma.desktop-appletsrc").expanduser()
+    if not config_path.exists():
+        return None
+    
+    primary_screen = str(get_primary_screen_index())
+    
+    try:
+        content = config_path.read_text()
+        
+        # Find desktop containment on primary screen
+        # Match section with all 3 required properties (any order)
+        for match in re.finditer(r'\[Containments\]\[(\d+)\]([^\[]*)', content):
+            section = match.group(2)
+            if (f'lastScreen={primary_screen}' in section and
+                'plugin=org.kde.plasma.folder' in section and
+                'wallpaperplugin=org.kde.image' in section):
+                
+                containment_id = match.group(1)
+                # Find Image= in wallpaper section
+                img_pattern = rf'\[Containments\]\[{containment_id}\]\[Wallpaper\]\[org\.kde\.image\]\[General\][^\[]*Image=([^\n]+)'
+                img_match = re.search(img_pattern, content)
+                if img_match:
+                    path = img_match.group(1).strip()
+                    return path[7:] if path.startswith("file://") else path
+    except Exception:
+        pass
+    return None
+
+
+def extract_accent_from_wallpaper(image_path):
+    """Extract accent color from wallpaper using ImageMagick."""
+    if not image_path or not Path(image_path).exists():
+        return None
+    
+    try:
+        # Get color palette with magick
+        result = subprocess.run(
+            ["magick", image_path, "-resize", "64x64", "-colors", "8",
+             "-format", "%c", "histogram:info:"],
+            capture_output=True, text=True, check=True
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return None
+    
+    # Parse colors and find most vibrant
+    from colorsys import rgb_to_hsv
+    best_color, best_score = None, 0
+    
+    for line in result.stdout.split('\n'):
+        match = re.search(r'#([0-9A-Fa-f]{6})', line)
+        if not match:
+            continue
+        
+        hex_color = match.group(1).lower()
+        r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+        h, s, v = rgb_to_hsv(r/255, g/255, b/255)
+        
+        # Score by vibrancy, skip grays
+        if s > 0.15 and 0.15 < v < 0.95:
+            score = s * v
+            if score > best_score:
+                best_score, best_color = score, f"#{hex_color}"
+    
+    return best_color
+
 def get_accent_color():
     try:
         result = subprocess.run(
@@ -189,18 +290,34 @@ def build_starship_palette(scheme_path, accent_hex):
     json_path = Path('~/.cache/wal/colors.json').expanduser()
     special = {}
     colors = {}
+    wallpaper = None
     if json_path.exists():
         with open(json_path, 'r') as jf:
             data = json.load(jf)
             special = data.get('special', {})
             colors = data.get('colors', {})
-        if accent_hex is None:
-            accent_hex = colors.get('color1', '#ff0000')
+            wallpaper = data.get('wallpaper', None)
         term_text = special.get('foreground', None)
     else:
-        if accent_hex is None:
-            accent_hex = '#ff0000'
         term_text = get_color(scheme_path, "Colors:Window", "ForegroundNormal")
+
+    # Fallback chain for accent color:
+    # 1. User-provided accent_hex (already set if passed via CLI)
+    # 2. KDE system accent color (includes wallpaper accent if enabled in settings)
+    # 3. Extract from wallpaper using ImageMagick (pywal wallpaper or KDE wallpaper)
+    # 4. Pywal color1 (penultimate fallback)
+    # 5. Default red (last resort)
+    if accent_hex is None:
+        accent_hex = get_accent_color()[0]
+    if accent_hex is None:
+        # Try to extract from wallpaper
+        wp_path = wallpaper if wallpaper else get_current_wallpaper()
+        if wp_path:
+            accent_hex = extract_accent_from_wallpaper(wp_path)
+    if accent_hex is None and colors:
+        accent_hex = colors.get('color1', None)
+    if accent_hex is None:
+        accent_hex = '#ff0000'
 
     # Normalize `accent_hex` to a '#rrggbb' string
     text = normalize_color(get_color(scheme_path, "Colors:Window", "ForegroundNormal"))
